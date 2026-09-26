@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  DELETED
+}
+
+enum BookStatus {
+  TO_READ
+  READING
+  READ
+  PAUSED
+  ABANDONED
+}
+
+enum MoodTag {
+  MOVED
+  CALM
+  JOYFUL
+  SAD
+  ANGRY
+  CONFUSED
+  RELIEVED
+  EMPTY
+  CHANGED
+}
+
+enum ActivityEntityType {
+  BOOK
+  DOG_EAR
+  ANNOTATION
+  REREAD_MARK
+  COMPLETION_REFLECTION
+}
+
+enum ActivityAction {
+  CREATED
+  UPDATED
+  DELETED
+  RESTORED
+  STATUS_CHANGED
+  COMPLETED
+}
+
+model User {
+  id           String      @id @default(uuid()) @db.Uuid
+  email        String      @unique @db.VarChar(320)
+  passwordHash String      @map("password_hash")
+  status       UserStatus  @default(ACTIVE)
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime?   @map("deleted_at") @db.Timestamptz(3)
+
+  sessions          Session[]
+  books             Book[]
+  dogEars           DogEar[]
+  annotations       Annotation[]
+  rereadMarks       RereadMark[]
+  reflections       CompletionReflection[]
+  activityEvents    ActivityEvent[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.Char(64)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, expiresAt])
+  @@map("sessions")
+}
+
+model Book {
+  id              String     @id @default(uuid()) @db.Uuid
+  userId          String     @map("user_id") @db.Uuid
+  version         Int        @default(1)
+  title           String     @db.VarChar(300)
+  author          String?    @db.VarChar(300)
+  publisher       String?    @db.VarChar(300)
+  publicationYear Int?       @map("publication_year") @db.SmallInt
+  isbn            String?    @db.VarChar(20)
+  pageCount       Int?       @map("page_count")
+  coverUrl        String?    @map("cover_url")
+  status          BookStatus @default(TO_READ)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt       DateTime?  @map("deleted_at") @db.Timestamptz(3)
+
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  dogEars       DogEar[]
+  annotations   Annotation[]
+  rereadMarks   RereadMark[]
+  reflections   CompletionReflection[]
+  activityEvents ActivityEvent[]
+
+  @@index([userId, deletedAt, updatedAt])
+  @@index([userId, status])
+  @@index([userId, title])
+  @@map("books")
+}
+
+model DogEar {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  bookId     String    @map("book_id") @db.Uuid
+  version    Int       @default(1)
+  pageNumber Int       @map("page_number")
+  reason     String?   @db.VarChar(500)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  book Book @relation(fields: [bookId], references: [id], onDelete: Restrict)
+
+  @@index([userId, deletedAt, createdAt])
+  @@index([bookId, pageNumber, deletedAt])
+  @@map("dog_ears")
+}
+
+model Annotation {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  bookId    String    @map("book_id") @db.Uuid
+  version   Int       @default(1)
+  startPage Int       @map("start_page")
+  endPage   Int       @map("end_page")
+  content   String
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  book Book @relation(fields: [bookId], references: [id], onDelete: Restrict)
+
+  @@index([userId, deletedAt, createdAt])
+  @@index([bookId, startPage, endPage, deletedAt])
+  @@map("annotations")
+}
+
+model RereadMark {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  bookId     String    @map("book_id") @db.Uuid
+  version    Int       @default(1)
+  pageNumber Int       @map("page_number")
+  reason     String?   @db.VarChar(1000)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  book Book @relation(fields: [bookId], references: [id], onDelete: Restrict)
+
+  @@index([userId, deletedAt, createdAt])
+  @@index([bookId, pageNumber, deletedAt])
+  @@map("reread_marks")
+}
+
+model CompletionReflection {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  bookId           String    @map("book_id") @db.Uuid
+  version          Int       @default(1)
+  completionRound  Int       @map("completion_round")
+  moodTags         MoodTag[] @map("mood_tags")
+  reflection       String?
+  completedAt      DateTime  @map("completed_at") @db.Timestamptz(3)
+  editableUntil    DateTime  @map("editable_until") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  book Book @relation(fields: [bookId], references: [id], onDelete: Restrict)
+
+  @@index([userId, deletedAt, completedAt])
+  @@index([bookId, completionRound, deletedAt])
+  @@map("completion_reflections")
+}
+
+model ActivityEvent {
+  id          String             @id @default(uuid()) @db.Uuid
+  userId      String             @map("user_id") @db.Uuid
+  bookId      String?            @map("book_id") @db.Uuid
+  entityType  ActivityEntityType @map("entity_type")
+  entityId    String?            @map("entity_id") @db.Uuid
+  action      ActivityAction
+  payloadJson Json               @default("{}") @map("payload_json")
+  occurredAt  DateTime           @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  book Book? @relation(fields: [bookId], references: [id], onDelete: Restrict)
+
+  @@index([userId, occurredAt])
+  @@index([userId, bookId, occurredAt])
+  @@index([userId, entityType, occurredAt])
+  @@map("activity_events")
+}

@@ -1,0 +1,36 @@
+{
+  "name": "paper-book-traces",
+  "version": "1.0.0",
+  "private": true,
+  "description": "纸质书阅读痕迹：记录书、页码、批注、重读与读完后的情绪。",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @paper-book-traces/api\" \"npm run dev -w @paper-book-traces/web\"",
+    "build": "npm run build -w @paper-book-traces/web && npm run build -w @paper-book-traces/api",
+    "test": "npm run test -w @paper-book-traces/api && npm run test -w @paper-book-traces/web",
+    "test:e2e": "npm run test:e2e -w @paper-book-traces/web",
+    "lint": "eslint .",
+    "typecheck": "npm run typecheck -w @paper-book-traces/api && npm run typecheck -w @paper-book-traces/web",
+    "db:generate": "npm run db:generate -w @paper-book-traces/api",
+    "db:migrate": "npm run db:migrate -w @paper-book-traces/api",
+    "db:migrate:dev": "npm run db:migrate:dev -w @paper-book-traces/api",
+    "db:seed": "npm run db:seed -w @paper-book-traces/api"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.35.0",
+    "eslint-plugin-vue": "^10.4.0",
+    "globals": "^16.3.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.42.0",
+    "vue-eslint-parser": "^10.2.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module"
+}
