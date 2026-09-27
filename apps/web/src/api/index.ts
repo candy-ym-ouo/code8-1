@@ -8,6 +8,7 @@ import type {
   Pagination,
   Reflection,
   RereadMark,
+  SavedFilter,
   TimelineEvent,
   Trace,
   User
@@ -48,6 +49,13 @@ export const booksApi = {
   traces: (id: string, params: URLSearchParams) =>
     api.get<{ items: Trace[]; pagination: Pagination }>(`/books/${id}/traces?${params}`),
   reflections: (id: string) => api.get<{ items: Reflection[] }>(`/books/${id}/reflections`)
+};
+
+export const savedFiltersApi = {
+  list: () => api.get<{ items: SavedFilter[] }>('/saved-filters'),
+  create: (body: { name: string; search: string; status: BookStatus | 'ALL' }) =>
+    api.post<{ filter: SavedFilter }>('/saved-filters', body),
+  delete: (id: string) => api.delete<void>(`/saved-filters/${id}`)
 };
 
 export const traceApi = {

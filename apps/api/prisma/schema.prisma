@@ -65,6 +65,7 @@ model User {
   rereadMarks       RereadMark[]
   reflections       CompletionReflection[]
   activityEvents    ActivityEvent[]
+  savedFilters      SavedFilter[]
 
   @@map("users")
 }
@@ -189,6 +190,22 @@ model CompletionReflection {
   @@index([userId, deletedAt, completedAt])
   @@index([bookId, completionRound, deletedAt])
   @@map("completion_reflections")
+}
+
+model SavedFilter {
+  id        String      @id @default(uuid()) @db.Uuid
+  userId    String      @map("user_id") @db.Uuid
+  name      String      @db.VarChar(60)
+  search    String      @default("") @db.VarChar(200)
+  status    BookStatus? @map("status")
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, name])
+  @@index([userId, createdAt])
+  @@map("saved_filters")
 }
 
 model ActivityEvent {

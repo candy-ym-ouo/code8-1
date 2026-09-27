@@ -8,6 +8,7 @@ import { currentUser, requireAuth } from '../../lib/auth.js';
 import { normalizeMoodTags, normalizeText, validateStatusTransition } from '../../lib/domain.js';
 import { writeEvent } from '../../lib/events.js';
 import { paginationFromQuery, parseId } from '../../lib/http.js';
+import { BOOK_LIST_ORDER_BY, buildBookListWhere, normalizeBookListFilters } from './query.js';
 
 const nullableText = (max: number) =>
   z.preprocess(
@@ -154,63 +155,50 @@ export const bookRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/books', async (request) => {
     const { page, pageSize, skip } = paginationFromQuery(request);
-    const query = request.query as Record<string, unknown>;
-    const status = typeof query.status === 'string' && query.status !== 'ALL' ? query.status : undefined;
-    const search = typeof query.search === 'string' ? query.search.trim() : '';
+    const filters = normalizeBookListFilters(request.query as Record<string, unknown>);
     const userId = currentUser(request).id;
+    const where = buildBookListWhere(userId, filters);
 
-    if (status && !BOOK_STATUSES.includes(status as BookStatus)) {
-      throw new AppError(422, 'VALIDATION_ERROR', '书目状态无效');
-    }
-
-    const where: Prisma.BookWhereInput = {
-      userId,
-      deletedAt: null,
-      ...(status ? { status: status as BookStatus } : {}),
-      ...(search
-        ? {
-            OR: [
-              { title: { contains: search, mode: 'insensitive' } },
-              { author: { contains: search, mode: 'insensitive' } }
-            ]
-          }
-        : {})
-    };
-
-    const [total, books] = await Promise.all([
-      prisma.book.count({ where }),
-      prisma.book.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
-        skip,
-        take: pageSize,
-        include: {
-          _count: {
-            select: {
-              dogEars: { where: { deletedAt: null } },
-              annotations: { where: { deletedAt: null } },
-              rereadMarks: { where: { deletedAt: null } },
-              reflections: { where: { deletedAt: null } }
+    // RepeatableRead 让 count 与明细读取同一快照：并发增删改时，
+    // 总数与本页条目始终来自同一时刻，不会互相矛盾。
+    const { total, books, latestMap } = await prisma.$transaction(
+      async (tx) => {
+        const total = await tx.book.count({ where });
+        const books = await tx.book.findMany({
+          where,
+          orderBy: BOOK_LIST_ORDER_BY,
+          skip,
+          take: pageSize,
+          include: {
+            _count: {
+              select: {
+                dogEars: { where: { deletedAt: null } },
+                annotations: { where: { deletedAt: null } },
+                rereadMarks: { where: { deletedAt: null } },
+                reflections: { where: { deletedAt: null } }
+              }
             }
           }
-        }
-      })
-    ]);
+        });
 
-    const ids = books.map((book) => book.id);
-    const latestEvents = ids.length
-      ? await prisma.activityEvent.groupBy({
-          by: ['bookId'],
-          where: {
-            userId,
-            bookId: { in: ids },
-            entityType: { in: ['DOG_EAR', 'ANNOTATION', 'REREAD_MARK'] },
-            action: { in: ['CREATED', 'UPDATED', 'RESTORED'] }
-          },
-          _max: { occurredAt: true }
-        })
-      : [];
-    const latestMap = new Map(latestEvents.map((event) => [event.bookId, event._max.occurredAt]));
+        const ids = books.map((book) => book.id);
+        const latestEvents = ids.length
+          ? await tx.activityEvent.groupBy({
+              by: ['bookId'],
+              where: {
+                userId,
+                bookId: { in: ids },
+                entityType: { in: ['DOG_EAR', 'ANNOTATION', 'REREAD_MARK'] },
+                action: { in: ['CREATED', 'UPDATED', 'RESTORED'] }
+              },
+              _max: { occurredAt: true }
+            })
+          : [];
+        const latestMap = new Map(latestEvents.map((event) => [event.bookId, event._max.occurredAt]));
+        return { total, books, latestMap };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead }
+    );
 
     return {
       items: books.map((book) => ({

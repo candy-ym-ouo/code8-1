@@ -8,6 +8,7 @@ import { prisma } from './lib/prisma.js';
 import { AppError, mapPrismaError, sendError, zodFields } from './lib/errors.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { bookRoutes } from './modules/books/routes.js';
+import { savedFilterRoutes } from './modules/saved-filters/routes.js';
 import { traceRoutes } from './modules/traces/routes.js';
 import { reflectionRoutes } from './modules/reflections/routes.js';
 import { timelineRoutes } from './modules/timeline/routes.js';
@@ -71,6 +72,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
   await app.register(bookRoutes, { prefix: '/api/v1' });
+  await app.register(savedFilterRoutes, { prefix: '/api/v1' });
   await app.register(traceRoutes, { prefix: '/api/v1' });
   await app.register(reflectionRoutes, { prefix: '/api/v1' });
   await app.register(timelineRoutes, { prefix: '/api/v1' });

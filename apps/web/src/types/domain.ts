@@ -99,6 +99,15 @@ export interface Pagination {
   total: number;
 }
 
+export interface SavedFilter {
+  id: string;
+  name: string;
+  search: string;
+  status: BookStatus | 'ALL';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const MOOD_LABELS: Record<MoodTag, string> = {
   MOVED: '被触动',
   CALM: '平静',
