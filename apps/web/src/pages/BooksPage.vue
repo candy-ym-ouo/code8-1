@@ -1,10 +1,26 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ApiError } from '../api/client';
 import { booksApi } from '../api';
 import { formatDateTime } from '../api/format';
 import ErrorNotice from '../components/ErrorNotice.vue';
+import { useAuthStore } from '../stores/auth';
 import { STATUS_LABELS, type Book, type BookStatus } from '../types/domain';
+import {
+  DEFAULT_BOOKS_FILTER,
+  booksFilterFromQuery,
+  booksFilterToQuery,
+  clampPageToTotal,
+  loadSavedBooksFilter,
+  sameBooksFilter,
+  saveBooksFilter,
+  type BooksFilter
+} from './booksFilter';
+
+const route = useRoute();
+const router = useRouter();
+const auth = useAuthStore();
 
 const books = ref<Book[]>([]);
 const loading = ref(true);
@@ -15,7 +31,39 @@ const page = ref(1);
 const pageSize = 12;
 const total = ref(0);
 
+const hasActiveFilter = computed(() => search.value.trim() !== '' || status.value !== 'ALL');
+
+function currentFilter(): BooksFilter {
+  return { search: search.value.trim(), status: status.value, page: page.value };
+}
+
+function applyFilter(filter: BooksFilter): void {
+  search.value = filter.search;
+  status.value = filter.status;
+  page.value = filter.page;
+}
+
+/** URL query 优先，其次是本地保存的筛选，最后是默认值。 */
+function resolveInitialFilter(): BooksFilter {
+  return (
+    booksFilterFromQuery(route.query) ??
+    loadSavedBooksFilter(localStorage, auth.user?.id ?? null) ??
+    DEFAULT_BOOKS_FILTER
+  );
+}
+
+/** 把当前筛选同步到 localStorage 与 URL，刷新或分享链接后状态可恢复。 */
+function persistFilter(): void {
+  saveBooksFilter(localStorage, auth.user?.id ?? null, currentFilter());
+  void router.replace({ query: booksFilterToQuery(currentFilter()) });
+}
+
+// 单调递增的请求序号：只有最新一次请求允许写入列表状态，
+// 快速切换筛选时，先发出的旧响应即使后返回也不得覆盖新结果。
+let loadSeq = 0;
+
 async function load(): Promise<void> {
+  const seq = ++loadSeq;
   loading.value = true;
   error.value = '';
   const params = new URLSearchParams({
@@ -26,26 +74,59 @@ async function load(): Promise<void> {
   if (status.value !== 'ALL') params.set('status', status.value);
   try {
     const result = await booksApi.list(params);
+    if (seq !== loadSeq) return;
+    const clamped = clampPageToTotal(page.value, result.pagination.total, pageSize);
+    if (clamped !== page.value) {
+      // 并发删除后当前页已不存在：回退到最后一页重新取数
+      page.value = clamped;
+      persistFilter();
+      return load();
+    }
     books.value = result.items;
     total.value = result.pagination.total;
   } catch (caught) {
+    if (seq !== loadSeq) return;
     error.value = caught instanceof ApiError ? caught.message : '书目加载失败';
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) loading.value = false;
   }
 }
 
 function submitSearch(): void {
   page.value = 1;
+  persistFilter();
+  void load();
+}
+
+function resetFilter(): void {
+  applyFilter(DEFAULT_BOOKS_FILTER);
+  persistFilter();
   void load();
 }
 
 function changePage(next: number): void {
   page.value = next;
+  persistFilter();
   void load();
 }
 
-onMounted(load);
+// 浏览器前进/后退或导航导致 URL 变化时，按 URL 恢复筛选状态
+watch(
+  () => route.query,
+  () => {
+    const next = resolveInitialFilter();
+    if (sameBooksFilter(next, currentFilter())) return;
+    applyFilter(next);
+    persistFilter();
+    void load();
+  }
+);
+
+onMounted(() => {
+  applyFilter(resolveInitialFilter());
+  persistFilter();
+  void load();
+});
 </script>
 
 <template>
@@ -78,10 +159,18 @@ onMounted(load);
 
     <div v-if="loading" class="state-panel">正在翻阅你的书目…</div>
     <div v-else-if="books.length === 0" class="empty-state card">
-      <span class="empty-mark">页</span>
-      <h2>还没有记录一本纸质书</h2>
-      <p>添加一本真实拥有的书，然后从某一页的折角或批注开始。</p>
-      <RouterLink class="button button-primary" to="/books/new">添加第一本书</RouterLink>
+      <template v-if="hasActiveFilter">
+        <span class="empty-mark">筛</span>
+        <h2>没有符合筛选条件的书</h2>
+        <p>换个关键词或状态试试，或者清除筛选查看全部书目。</p>
+        <button class="button button-primary" type="button" @click="resetFilter">清除筛选</button>
+      </template>
+      <template v-else>
+        <span class="empty-mark">页</span>
+        <h2>还没有记录一本纸质书</h2>
+        <p>添加一本真实拥有的书，然后从某一页的折角或批注开始。</p>
+        <RouterLink class="button button-primary" to="/books/new">添加第一本书</RouterLink>
+      </template>
     </div>
     <div v-else class="book-grid">
       <article v-for="book in books" :key="book.id" class="book-card card">

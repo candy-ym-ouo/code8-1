@@ -177,39 +177,47 @@ export const bookRoutes: FastifyPluginAsync = async (app) => {
         : {})
     };
 
-    const [total, books] = await Promise.all([
-      prisma.book.count({ where }),
-      prisma.book.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
-        skip,
-        take: pageSize,
-        include: {
-          _count: {
-            select: {
-              dogEars: { where: { deletedAt: null } },
-              annotations: { where: { deletedAt: null } },
-              rereadMarks: { where: { deletedAt: null } },
-              reflections: { where: { deletedAt: null } }
+    // 总数与明细在同一个可重复读快照中读取：并发增删改在本请求期间提交时，
+    // total 与当前页 items 仍然来自同一时刻的数据库状态，不会相互矛盾。
+    const { total, books, latestEvents } = await prisma.$transaction(
+      async (tx) => {
+        const total = await tx.book.count({ where });
+        // 排序必须构成确定的全序：updatedAt 可能相同（批量导入、同一毫秒并发写入），
+        // 用唯一的 id 作为决胜键，否则跨页可能出现重复或遗漏的条目。
+        const books = await tx.book.findMany({
+          where,
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          skip,
+          take: pageSize,
+          include: {
+            _count: {
+              select: {
+                dogEars: { where: { deletedAt: null } },
+                annotations: { where: { deletedAt: null } },
+                rereadMarks: { where: { deletedAt: null } },
+                reflections: { where: { deletedAt: null } }
+              }
             }
           }
-        }
-      })
-    ]);
+        });
+        const ids = books.map((book) => book.id);
+        const latestEvents = ids.length
+          ? await tx.activityEvent.groupBy({
+              by: ['bookId'],
+              where: {
+                userId,
+                bookId: { in: ids },
+                entityType: { in: ['DOG_EAR', 'ANNOTATION', 'REREAD_MARK'] },
+                action: { in: ['CREATED', 'UPDATED', 'RESTORED'] }
+              },
+              _max: { occurredAt: true }
+            })
+          : [];
+        return { total, books, latestEvents };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead }
+    );
 
-    const ids = books.map((book) => book.id);
-    const latestEvents = ids.length
-      ? await prisma.activityEvent.groupBy({
-          by: ['bookId'],
-          where: {
-            userId,
-            bookId: { in: ids },
-            entityType: { in: ['DOG_EAR', 'ANNOTATION', 'REREAD_MARK'] },
-            action: { in: ['CREATED', 'UPDATED', 'RESTORED'] }
-          },
-          _max: { occurredAt: true }
-        })
-      : [];
     const latestMap = new Map(latestEvents.map((event) => [event.bookId, event._max.occurredAt]));
 
     return {
